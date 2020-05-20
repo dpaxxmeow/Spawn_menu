@@ -1,0 +1,1666 @@
+--[[
+	Tronex
+	2019/9/22
+	
+	Quick Debugger to launch all kind of utilities
+	Live execution on target on your cursor
+	Item spawner with inventory cell system instead of lists
+	Can execute actions between two targets like testing goodwill changes between npcs
+	Easily configurable, with ability to attach custom keybinds to functors
+	You can execute all commands from the old debug menu "debug_cmd_list" 
+--]]
+
+
+-- Put your utilities here
+local exec_table = {}
+function prepare()
+	exec_table = {
+	
+	-- cnd: 	to execute debug command (from debug_cmd_list)
+	-- console: to execute main console command (only commands with on/off state)
+	-- functor: to execute a function of your choice
+	
+	-- you can attach a keybind for any list by adding "key", see lua_help.script for a list of DIK keys
+	-- make sure to follow the numric order of each table
+	
+	["target"] = {
+		{ 	name = "Get info" 						, functor = get_info 						, hide_ui = false 		, key = "DIK_F"			, target_color = true			},
+		{ 	name = "Kill" 							, functor = kill_npc 						, hide_ui = true 		, key = "DIK_K"			},
+		{ 	name = "Trade" 							, functor = go_trade 						, hide_ui = true 		, key = "DIK_T"			},
+		{ 	name = "Become companion" 				, functor = set_npc_companion 				, hide_ui = true 		, key = "DIK_C"			},
+		{ 	name = "Can see me?" 					, functor = can_see_actor 					, hide_ui = false 								},
+		{ 	name = "Be friend (relation)" 			, functor = set_relation_friend 			, hide_ui = false 								, target_color = true			},
+		{ 	name = "Be neutral (relation)" 			, functor = set_relation_neutral 			, hide_ui = false 								, target_color = true			},
+		{ 	name = "Be enemy (relation)" 			, functor = set_relation_enemy 				, hide_ui = false 								, target_color = true			},
+		{ 	name = "Be friend (goodwill)" 			, functor = set_goodwill_friend 			, hide_ui = false 								, target_color = true			},
+		{ 	name = "Be neutral (goodwill)" 			, functor = set_goodwill_neutral 			, hide_ui = false 								, target_color = true			},
+		{ 	name = "Be enemy (goodwill)" 			, functor = set_goodwill_enemy 				, hide_ui = false 								, target_color = true			},
+		{ 	name = "Be friend squad (goodwill)" 	, functor = set_goodwill_squad_friend 		, hide_ui = false 								, target_color = true			},
+		{ 	name = "Be neutral squad (goodwill)" 	, functor = set_goodwill_squad_neutral 		, hide_ui = false 								, target_color = true			},
+		{ 	name = "Be enemy squad (goodwill)" 		, functor = set_goodwill_squad_enemy 		, hide_ui = false 								, target_color = true			},
+	},
+	["action"] = {
+		{ 	name = "Go incognito" 					, cmd = "invisible on" 						, hide_ui = false 		, key = "DIK_I"			},
+		{ 	name = "Rich bitch" 					, cmd = "money 1000000" 					, hide_ui = false 		, key = "DIK_M"			},
+		{ 	name = "Delete all squads" 				, cmd = "alife_release all" 				, hide_ui = true 								},
+		{ 	name = "Delete common squads" 			, cmd = "alife_release common" 				, hide_ui = true 								},
+		{ 	name = "Refresh game" 					, functor = reload_textures 				, hide_ui = true 		, key = "DIK_F5"		},
+		{ 	name = "Reload system_ini()" 			, cmd = "reload_system_ini" 				, hide_ui = false 		, key = "DIK_NUMPAD0"	},
+		{ 	name = "Start an emission" 				, cmd = "surge start" 						, hide_ui = true 								},
+		{ 	name = "Stop an emission" 				, cmd = "surge stop" 						, hide_ui = true 								},
+		{ 	name = "Start a psi-storm" 				, cmd = "psi_storm start" 					, hide_ui = true 								},
+		{ 	name = "Stop a psi-storm" 				, cmd = "psi_storm stop" 					, hide_ui = true 								},
+		{ 	name = "Unlock all articles" 			, cmd = "unlock_all_articles" 				, hide_ui = true 								},
+		{ 	name = "Unlock all notes" 				, cmd = "unlock_all_notes" 					, hide_ui = true 								},
+	},
+	["toggle"] = {
+		{ 	name = "God mode" 						, console = "g_god" 						, hide_ui = false 		, key = "DIK_G"			},
+		{ 	name = "Unlimited ammo" 				, console = "g_unlimitedammo" 				, hide_ui = false 		, key = "DIK_Y"			},
+		{ 	name = "rsStatistic" 					, console = "rs_stats" 						, hide_ui = false 		, key = "DIK_S"			},
+		{ 	name = "Debug HUD" 						, functor = toggle_debug_hud 				, hide_ui = true 		, key = "DIK_X"			},
+		{ 	name = "Debug Map HUD" 					, functor = toggle_debug_hud_map 			, hide_ui = true 		, key = "DIK_Z"			},
+	},
+	["editor"] = {
+		{ 	name = "Weather Editor" 				, functor = ui_debug_weather.start 			, hide_ui = true 		, key = "DIK_1"			},
+		{ 	name = "Lighting Editor" 				, functor = ui_debug_lighting.start 		, hide_ui = true 		, key = "DIK_2"			},
+		{ 	name = "Weapon HUD Editor" 				, functor = ui_debug_wpn_hud.start 			, hide_ui = true 		, key = "DIK_3"			},
+		{ 	name = "Item Spawner" 					, functor = start_item_spawner 				, hide_ui = true 		, key = "DIK_4"			},
+		{ 	name = "Object Spawner" 				, functor = start_obj_spawner 				, hide_ui = true 		, key = "DIK_5"			},
+		{ 	name = "Func Executer" 					, functor = start_executer 					, hide_ui = true 		, key = "DIK_0"			},
+	},
+	
+	}
+end
+
+local d_key = "DIK_F12"
+local spawn_all_key = "DIK_HOME"
+local enable_log = true
+
+local o1,o2 = nil,nil -- last and previous object
+local clr, m_floor, m_ceil, s_find, u_clamp 	=	 txr_utils.get_clr, math.floor, math.ceil, string.find, utils.clamp
+
+------------------------------------------------------------
+-- Functors
+------------------------------------------------------------
+function get_info()
+	if (not o1) then
+		send_output("!No target object found")
+		return
+	end
+	
+	local is_stalker = IsStalker(o1) and true or false
+	
+	local se_o = alife_object(o1:id())
+	local target = o2 or db.actor
+	
+	send_output('----------------------------')
+	send_output('-Object Info', target:name())
+	send_output('----------------------------')
+	send_output('/Id: %s', o1:id())
+	send_output('/Section: %s', o1:section())
+	send_output('/Clsid: %s', o1:clsid())
+	send_output('/Story ID: %s', get_object_story_id(o1:id()) or "nil")
+	if (se_o.parent_id and se_o.parent_id ~= 65535) then 
+		send_output("/Parent ID: %s",se_o.parent_id)
+	end
+	if (se_o.group_id and se_o.group_id ~= 65535) then 
+		send_output("/Squad ID: %s",se_o.group_id)
+	end
+	if is_stalker then
+		send_output('/Name: %s', o1:character_name())
+		send_output('/Community: %s', o1:character_community())
+		send_output('/Visual: %s', o1:get_visual_name())
+		send_output('/Rank: %s [%s]', ranks.get_obj_rank_name(o1), o1:character_rank())
+		send_output('/Reputation: %s [%s]', game.translate_string(alun_utils.get_reputation_name(o1:character_reputation())), o1:character_reputation())
+		send_output('----------------------------')
+		send_output('/Attitude <<Total Goodwill>> towards [%s]: %s', target:name(), o1:general_goodwill(target))
+		send_output('/Goodwill (Personal): %s [%s]', o1:goodwill(target), o1:relation(target))
+		send_output('/Goodwill (Rank): %s', game_relations.get_rank_relation(o1, target) )
+		send_output('/Goodwill (Reputation): %s', game_relations.get_reputation_relation(o1, target) )
+		send_output('/Goodwill (Community-Stalker): %s', o1:community_goodwill( character_community(target) ))
+		send_output('/Goodwill (Community-Community): %s', relation_registry.community_relation( character_community(o1) , character_community(target) ))
+		send_output('/Sympathy: %s', o1:sympathy())
+	end
+	
+end
+
+function set_npc_companion()
+	if (not stalker_check(o1)) then return end
+	
+	local name = o1:name()
+	
+	if (not dialogs_axr_companion.is_non_story(nil,o1)) then
+		send_output('![%s] is a story NPC',name)
+		return
+	end
+	if (not dialogs_axr_companion.is_not_actor_companion(nil,o1)) then
+		send_output('![%s] is already a companion',name)
+		return
+	end
+	--[[
+	if (not dialogs_axr_companion.is_room_in_actor_squad(nil,o1)) then
+		send_output('!you dont have more room for another companion',name)
+		return
+	end
+	--]]
+	if (not dialogs_axr_companion.is_not_hostage_task_giver(db.actor,o1)) then
+		send_output('![%s] is a hostage',name)
+		return
+	end
+	
+	dialogs_axr_companion.become_actor_companion(db.actor,o1)
+	
+	send_output('-[%s] squad become companions',name)
+end
+
+function kill_npc()
+	if (not stalker_check(o1)) then return end
+	
+	o1:kill(o1)
+	
+	send_output('-[%s] has died somehow?!',o1:name())
+end
+
+function can_see_actor()
+	if (not stalker_check(o1)) then return end
+	
+	if o1:see(db.actor) then
+		send_output('-Yes, [%s] can see you!',o1:name())
+	else
+		send_output('-Nope, [%s] cannot see you!',o1:name())
+	end
+	
+end
+
+function go_trade()
+	if (not stalker_check(o1)) then return end
+	
+	o1:start_trade(db.actor)
+end
+
+function set_relation_npc_npc(npc_1, npc_2, relation)
+	if (not stalker_check(npc_1)) or (not stalker_check(npc_2)) then return end
+	
+	npc_1:set_relation(relation, npc_2)
+	
+	send_output('-[%s] Relation to [%s] is set by (%s)', npc_1:name(), npc_2:name(), relation)
+end
+function set_relation_enemy()
+	set_relation_npc_npc(o1, o2 or db.actor, game_object.enemy)
+end
+function set_relation_neutral()
+	set_relation_npc_npc(o1, o2 or db.actor, game_object.neutral)
+end
+function set_relation_friend()
+	set_relation_npc_npc(o1, o2 or db.actor, game_object.friend)
+end
+
+function set_goodwill_npc_npc(npc_1, npc_2, goodwill)
+	if (not stalker_check(npc_1)) or (not stalker_check(npc_2)) then return end
+	
+	npc_1:force_set_goodwill(goodwill, npc_2)
+	
+	send_output('-[%s] Goodwill to [%s] is set by (%s)', npc_1:name(), npc_2:name(), goodwill)
+end
+function set_goodwill_enemy()
+	set_goodwill_npc_npc(o1, o2 or db.actor, -5000)
+end
+function set_goodwill_neutral()
+	set_goodwill_npc_npc(o1, o2 or db.actor, 0)
+end
+function set_goodwill_friend()
+	set_goodwill_npc_npc(o1, o2 or db.actor, 5000)
+end
+
+function set_goodwill_squad_npc(npc_1, npc_2, goodwill)
+	if (not stalker_check(npc_1)) or (not stalker_check(npc_2)) then return end
+	
+	local squad = get_object_squad(npc_1)
+	if (not squad) then
+		send_output('-[%s] no squad found',npc_1:name())
+	end	
+	
+	for k in squad:squad_members() do
+		local se_obj = k.object or k.id and sim:object(k.id)
+		if (se_obj) then
+			se_obj:force_set_goodwill(goodwill, npc_2)
+			send_output('-[%s] Goodwill to [%s] is set by (%s)', se_obj:name(), npc_2:name(), goodwill)
+		end
+	end
+end
+function set_goodwill_squad_enemy()
+	set_goodwill_squad_npc(o1, o2 or db.actor, -5000)
+end
+function set_goodwill_squad_neutral()
+	set_goodwill_squad_npc(o1, o2 or db.actor, 0)
+end
+function set_goodwill_squad_friend()
+	set_goodwill_squad_npc(o1, o2 or db.actor, 5000)
+end
+
+function reload_textures()
+	ChangeLevel(db.actor:position(),db.actor:level_vertex_id(),db.actor:game_vertex_id(),vector())
+	send_output("-Reloaded textures")
+end
+
+function toggle_debug_hud()
+	local toggle = axr_main.config:r_value("mm_options","enable_debug_hud",1,false)
+	if (toggle == true) then
+		axr_main.config:w_value("mm_options","enable_debug_hud",false)
+		axr_main.config:save()
+		xrs_debug_tools.deactivate_feature()
+		send_output("-Deactivate Debug HUD")
+	else
+		axr_main.config:w_value("mm_options","enable_debug_hud",true)
+		axr_main.config:save()
+		xrs_debug_tools.activate_feature()
+		send_output("-Activate Debug HUD")
+	end
+end
+
+function toggle_debug_hud_map()
+	local toggle = axr_main.config:r_value("mm_options","enable_debug_map_hud",1,false)
+	if (toggle == true) then
+		axr_main.config:w_value("mm_options","enable_debug_map_hud",false)
+		axr_main.config:save()
+		ui_map_debug_ex.deactivate_feature()
+		send_output("-Deactivate Debug Map HUD")
+	else
+		axr_main.config:w_value("mm_options","enable_debug_map_hud",true)
+		axr_main.config:save()
+		ui_map_debug_ex.activate_feature()
+		send_output("-Activate Debug Map HUD")
+	end
+end
+
+
+
+--====================================================================================================================
+--////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+--====================================================================================================================
+
+------------------------------------------------------------
+-- List box
+------------------------------------------------------------
+class "list_element" (CUIListBoxItem)
+function list_element:__init(index, width, height, offset, txt_1, txt_2 , obj_related) super(index, width, height, offset, txt_1, txt_2, obj_related)
+	self.index 					= index
+	self.obj_related			= obj_related and true or false
+	
+	self.text					= self:GetTextItem()
+	self.text:SetWndRect		(Frect():set(0,0,width,height))
+	self:SetTextColor			(GetARGB(255, 200, 200, 200))
+	self.text:SetFont			(GetFontLetterica16Russian())
+	self.text:SetWndSize		(vector2():set( (txt_2 and (width - 40) or width) , height ))
+	self.text:SetWndPos			(vector2():set(offset, 0))
+	self.text:SetEllipsis		(true)
+	self.text:SetText			(txt_1)
+	
+	if txt_2 then
+		local str_flag = string.gsub(txt_2,"DIK_","")
+		if string.find(str_flag,"NUMPAD") then
+			str_flag = string.gsub(str_flag,"NUMPAD","PAD_")
+		end
+		
+		self.flag					= self:AddTextField(str_flag)
+		self.flag:SetTextColor		(GetARGB(255, 170, 170, 250))
+		self.flag:SetFont			(GetFontLetterica16Russian())
+		self.flag:SetWndSize		(vector2():set(40 , height))
+		self.flag:SetWndPos			(vector2():set(width - 40 , 0))
+	end
+end
+
+
+------------------------------------------------------------
+-- Debug Launcher
+------------------------------------------------------------
+local ui_main
+local function on_key_release(key)
+	if (key == DIK_keys[d_key]) then
+		ui_main = start_ui(ui_main, ui_debug_launcher)
+		if ui_main and ui_main:IsShown() then
+			ui_main:Reset()
+			_G.KEYS_UNLOCK					= false
+		end
+	end
+end
+
+function on_game_start()
+	if DEV_DEBUG then
+		prepare()
+		RegisterScriptCallback("on_key_release",on_key_release)
+	end
+end
+
+class "ui_debug_launcher" (CUIScriptWnd)
+function ui_debug_launcher:__init(owner) super()
+	self.txt_console = {}
+	self.console_size = 35
+	self.console_relay = false
+	self.key_list = {}
+	
+	-- Gather keybinds
+	for tab,v in pairs(exec_table) do
+		for i=1,#v do
+			local key = v[i].key
+			if key then
+				self.key_list[DIK_keys[key]] = {tab,i}
+			end
+		end
+	end
+	
+	self:InitControls()
+	self:InitCallBacks()
+	
+	--printf("- Debugger Main | Init")
+end
+
+function ui_debug_launcher:__finalize()
+	
+end
+
+function ui_debug_launcher:InitControls()
+	self:SetWndRect			(Frect():set(0,0,1024,768))
+	self:SetAutoDelete(true)
+	
+	self.xml				= CScriptXmlInit()
+	local xml = self.xml
+	xml:ParseFile			("ui_debug_launcher.xml")
+	
+	self.console       = xml:InitStatic("dbg_main_console", self)
+	self.console_frame = xml:InitFrame("dbg_main_console:frame_base", self.console)
+	self.console_frame_in   = xml:InitFrame("dbg_main_console:frame_con", self.console)
+	self.console_cap   = xml:InitStatic("dbg_main_console:cap", self.console)
+	self.console_input = xml:InitEditBox("dbg_main_console:input",self.console)
+	self:Register(self.console_input,"console_input")
+	
+	local pos_con = self.console_frame_in:GetWndPos()
+	local offset = vector2()
+	offset.x = 10 + pos_con.x
+	offset.y = 10 + pos_con.y
+
+	for i=1,self.console_size do
+		self.txt_console[i] = xml:InitTextWnd("dbg_main_console:ln",self.console)
+		self.txt_console[i]:SetWndPos(offset)
+		offset.y = offset.y + 15
+
+		self.txt_console[i]:SetTextColor( GetARGB(255,240, 240, 240))
+	end
+	self.txt_console[1]:SetTextColor( GetARGB(255,255, 255, 255))
+	
+	self.obj1_txt = xml:InitTextWnd("dbg_main_console:obj1_txt",self.console)
+	self.obj2_txt = xml:InitTextWnd("dbg_main_console:obj2_txt",self.console)
+	
+	self.elements = {}
+	for tab, v in pairs(exec_table) do
+		self.elements[tab]            = {}
+		self.elements[tab].main       = xml:InitStatic("dbg_main_" .. tab, self)
+		self.elements[tab].frame      = xml:InitFrame("dbg_main_" .. tab .. ":frame_base", self.elements[tab].main)
+		self.elements[tab].frame_list = xml:InitFrame("dbg_main_" .. tab .. ":frame_list", self.elements[tab].main)
+		self.elements[tab].cap        = xml:InitStatic("dbg_main_" .. tab .. ":cap", self.elements[tab].main)
+		self.elements[tab].list       = xml:InitListBox("dbg_main_" .. tab .. ":list", self.elements[tab].main)
+		self.elements[tab].list:ShowSelectedItem(true)
+		self.elements[tab].list:Show(true)
+		self:Register(self.elements[tab].list, "list_" .. tab)
+		for i=1,#v do
+			local _ele = list_element(i, self.elements[tab].list:GetWidth(), 22, 20, v[i].name, v[i].key, v[i].target_color)
+			self.elements[tab].list:AddExistingItem(_ele)
+		end
+	end
+end
+
+function ui_debug_launcher:InitCallBacks()
+	for tab, v in pairs(exec_table) do
+		self:AddCallback("list_" .. tab, ui_events.WINDOW_LBUTTON_DB_CLICK, self["OnList_" .. tab], self)
+	end
+	self:AddCallback("console_input", ui_events.EDIT_TEXT_COMMIT, self.OnConsoleInput, self)
+end
+
+function ui_debug_launcher:Reset()
+
+	-- Get current and last objects
+	local id2 = o1 and o1:id()
+	if id2 then
+		o2 = db.storage[id2] and db.storage[id2].object or level.object_by_id(id2)
+	else
+		o2 = nil
+	end
+	
+	if (level.get_target_obj) then
+		o1 = level.get_target_obj() or nil
+	else
+		o1 = nil
+	end
+	
+	if o2 and o1 and id2 == o1:id() then
+		o2 = nil
+	end
+	
+	-- Objects text
+	if o1 then
+		self.obj1_txt:SetText("Current Target: " .. o1:name())
+	end
+	if o2 then
+		self.obj2_txt:SetText("Previous Target: " .. o2:name())
+	end
+	
+	-- Set Color
+	for tab, v in pairs(exec_table) do
+		for i=0,(#v - 1) do
+			local _E = self.elements[tab].list:GetItemByIndex(i)
+			if _E then
+				if o1 and o2 and _E.obj_related then
+					_E:SetTextColor(GetARGB(255, 200, 100, 250))
+				else
+					_E:SetTextColor(GetARGB(255, 200, 200, 200))
+				end
+			end
+		end
+	end
+end
+
+------ Callbacks
+function ui_debug_launcher:Execute(tab,index)
+	
+	printf("- Debug Launcher | Execute (%s)", exec_table[tab][index].name)
+	
+	if exec_table[tab][index].console then
+		local con = get_console()
+		local param = exec_table[tab][index].console
+		local val = not get_console():get_bool(param)
+		
+		con:execute(param .. " " .. (val and "1" or "0"))
+		self:SendOutput("#Command executed: " .. param .. " " .. (val and "1" or "0"))
+		
+	elseif exec_table[tab][index].cmd then
+		local str = exec_table[tab][index].cmd
+		self.console_input:SetText(str)
+		self:OnConsoleInput()
+		--self.console_input:SetText("")
+		
+	else
+		exec_table[tab][index].functor() -- Executing the function
+		--self:SendOutput("Started: " .. exec_table[tab][index].name)
+	end
+	
+	if exec_table[tab][index].hide_ui then
+		self:OnCancel()
+	end
+end
+
+function ui_debug_launcher:OnList_DBClicked(tab)
+	local pick = self.elements[tab].list:GetSelectedItem()
+	if (not pick) then
+		return
+	end
+	
+	self:Execute(tab, pick.index)
+end
+
+function ui_debug_launcher:OnList_target()
+	self:OnList_DBClicked("target")
+end
+function ui_debug_launcher:OnList_action()
+	self:OnList_DBClicked("action")
+end
+function ui_debug_launcher:OnList_toggle()
+	self:OnList_DBClicked("toggle")
+end
+function ui_debug_launcher:OnList_editor()
+	self:OnList_DBClicked("editor")
+end
+
+function ui_debug_launcher:OnConsoleInput()
+	local txt = self.console_input:GetText()
+	if (txt == "") then
+		return
+	end
+
+	local wrd = ""
+	local _strt, _end = string.find(txt,".%S+")
+	if (_strt and _end) then
+		wrd = string.sub(txt,_strt, _end)
+		wrd = string.lower(wrd)
+	else
+		return "For usage type echo help"
+	end
+
+	if not (debug_cmd_list.command_exists(wrd)) then
+		self:SendOutput("Command %s cannot be found. Type help for a list of commands.",wrd)
+		return
+	end
+
+	-- Grab rest of str
+	local args = string.sub(txt,string.len(wrd)+1)
+
+	-- Trim
+	args = string.gsub(args, "^%s*(.-)%s*$", "%1")
+
+	-- Perform execute string on $vars
+	local p ={}
+	local var_list = debug_cmd_list.get_var_list()
+	for s in string.gmatch(args,"$(.-)%$") do
+		s = string.gsub(s, "^%s*(.-)%s*$", "%1")
+		if (s and s ~= "" and var_list[s]) then
+			table.insert(p,s)
+		else
+			local ls,err = loadstring("return function() local val = " .. s .."; return val; end")
+			local func = ls and ls() or err
+			local val = func and type(func) == "function" and func()
+			table.insert(p,val)
+		end
+	end
+
+	-- replace all %s with returned vals
+	local i = 0
+	local function sr(a)
+		i = i + 1
+
+		if ( type(p[i] ~= "userdata") )then
+			if ( var_list[p[i]] and type(var_list[p[i]] ~= "userdata") ) then
+				return tostring(var_list[p[i]])
+			end
+			return tostring(p[i])
+		end
+		return ""
+	end
+	local output = string.gsub(args,"%%s",sr)
+
+	-- Remove all $exe_strs
+	output = string.gsub(output,"$(.-)%$","")
+
+	-- Send Output
+	self:SendOutput(debug_cmd_list.command_give(wrd,output,self,p))
+end
+
+
+------ Functions
+local markers = {
+	["-"] = "d_green",
+	["!"] = "d_red",
+	["~"] = "pda_yellow",
+	["/"] = "d_cyan",
+	["#"] = "d_blue",
+}
+function ui_debug_launcher:GetColor(mark)
+	if markers[mark] then
+		return clr(markers[mark],true)
+	else
+		return clr("white",true)
+	end
+	
+end
+
+function ui_debug_launcher:SendOutput(txt,...)
+	if not (txt) or (txt == "") then
+		return
+	end
+
+	local i = 0
+	local out = txt
+	local p = {...}
+	if (#p > 0) then
+		local function sr(a)
+			i = i + 1
+			return tostring(p[i])
+		end
+		out = string.gsub(txt,"%%s",sr)
+	end
+
+	for n=1,#self.txt_console-1,1 do
+		local s = self.txt_console[n+1]:GetText()
+		local clr = self.txt_console[n+1]:GetTextColor()
+		self.txt_console[n]:SetText(s)
+		self.txt_console[n]:SetTextColor( clr )
+	end
+	local out_cut = string.sub(out, 2, string.len(out))
+	local out_mark = string.sub(out,1,1) or ""
+	if (not markers[out_mark]) then
+		out_cut = out_mark .. out_cut
+	end
+	self.txt_console[#self.txt_console]:SetText(out_cut)
+	self.txt_console[#self.txt_console]:SetTextColor( self:GetColor(out_mark) )
+
+	if (self.console_relay) then
+		printf("Debug Console: %s",out)
+	end
+end
+
+function ui_debug_launcher:SendOutputList(list,start,finish)
+	if not (list and not is_empty(list)) then
+		return
+	end
+
+	local count = 1
+	local n = 1
+	local size = #self.txt_console
+	for k,v in pairs(list) do
+		if (start and count >= start) then
+			if (n < (finish or size)) then
+				self:SendOutput(tostring(v))
+				n = n + 1
+			else
+				self:SendOutput(tostring(v))
+				return
+			end
+		else
+			count = count + 1
+		end
+	end
+	for i=n,finish do 
+		self:SendOutput(" ")
+	end
+end
+
+function ui_debug_launcher:OnKeyboard(dik, keyboard_action)
+	local res = CUIScriptWnd.OnKeyboard(self,dik,keyboard_action)
+	if (res == false) then
+		if keyboard_action == ui_events.WINDOW_KEY_PRESSED then
+			if dik == DIK_keys.DIK_ESCAPE then
+				self:OnCancel()
+				
+			elseif self.key_list[dik] then
+				local tab = self.key_list[dik][1]
+				local idx = self.key_list[dik][2]
+				self:Execute(tab, idx)
+			end
+		end
+	end
+	return res
+end
+
+function ui_debug_launcher:OnCancel()
+	self:HideDialog()
+	self:Show(false)
+	--ui_main = nil
+	--o1 = nil
+	_G.KEYS_UNLOCK					= true
+end
+
+
+
+------------------------------------------------------------
+-- Item Spawner
+------------------------------------------------------------
+id_to_spawn_table = {
+		[1] = "Artefacts",
+		[2] = "Artefacts (Container)",
+		[3] = "Items (Food)",
+		[4] = "Items (Drink)",
+		[5] = "Items (Medical)",
+		[6] = "Items (Device)",
+		[7] = "Items (Tool)",
+		[8] = "Items (Repair)",
+		[9] = "Items (Parts)",
+		[10] = "Items (Misc.)",
+		[11] = "Items (Note)",
+		[12] = "Items (Quest)",
+		[13] = "Items (Upgrades)",
+		[14] = "Helmets",	
+		[15] = "Outfits (Attachments)",
+		[16] = "Outfits (Light)",	
+		[17] = "Outfits (Medium)",	
+		[18] = "Outfits (Heavy)",	
+		[19] = "Weapons (Ammo)",
+		[20] = "Weapons (Melee)",
+		[21] = "Weapons (Pistol)",
+		[22] = "Weapons (Shotgun)",
+		[23] = "Weapons (Rifle)",
+		[24] = "Weapons (Sniper)",
+		[25] = "Weapons (Explosive)",
+		[26] = "Weapons (Misc.)",
+}
+
+local spawn_table_list
+function get_spawn_table(name)
+	if (spawn_table_list and spawn_table_list[name]) then 
+		return spawn_table_list[name]
+	end 
+	
+	spawn_table_list = {
+		["Artefacts"]                     = {},
+		["Artefacts (Container)"]     	  = {},
+		["Items (Food)"]                  = {},
+		["Items (Drink)"]                 = {},
+		["Items (Medical)"]               = {},
+		["Items (Device)"]                = {},
+		["Items (Tool)"]                  = {},
+		["Items (Repair)"]                = {},
+		["Items (Parts)"]                 = {},
+		["Items (Misc.)"]                 = {},
+		["Items (Note)"]                  = {},
+		["Items (Quest)"]                 = {},
+		["Items (Upgrades)"]              = {},
+		["Helmets"]                       = {},	
+		["Outfits (Attachments)"]     	  = {},
+		["Outfits (Light)"]               = {},	
+		["Outfits (Medium)"]              = {},	
+		["Outfits (Heavy)"]               = {},	
+		["Weapons (Ammo)"]                = {},
+		["Weapons (Melee)"]               = {},
+		["Weapons (Pistol)"]              = {},
+		["Weapons (Shotgun)"]             = {},
+		["Weapons (Rifle)"]               = {},
+		["Weapons (Sniper)"]              = {},
+		["Weapons (Explosive)"]           = {},
+		["Weapons (Misc.)"]               = {},
+	}	
+	
+	local m_classes =
+	{
+		-- kind
+		["i_arty_junk"]     	= "Artefacts",
+		["i_arty"]     	        = "Artefacts",
+		["ARTEFACT"]            = "Artefacts",
+		["SCRPTART"]            = "Artefacts",
+		
+		["i_arty_cont"]         = "Artefacts (Container)",
+		
+		["i_mutant_cooked"]    	= "Items (Food)",
+		["i_mutant_raw"]    	= "Items (Food)",
+		["i_food"]    	        = "Items (Food)",
+		["II_FOOD"]             = "Items (Food)",
+		["S_FOOD"]              = "Items (Food)",
+	
+		["i_drink"]    	        = "Items (Drink)",
+		["II_BOTTL"]            = "Items (Drink)",
+		
+		["i_medical"]    	    = "Items (Medical)",
+		["II_BANDG"]            = "Items (Medical)",
+		["II_MEDKI"]            = "Items (Medical)",
+		["II_ANTIR"]            = "Items (Medical)",
+		
+		["i_device"]            = "Items (Device)",
+		["DET_SIMP"]            = "Items (Device)",
+		["DET_ADVA"]            = "Items (Device)",
+		["DET_ELIT"]            = "Items (Device)",
+		["DET_SCIE"]            = "Items (Device)",
+		
+		["i_kit"]               = "Items (Tool)",
+		["i_tool"]              = "Items (Tool)",
+		
+		["i_repair"]            = "Items (Repair)",
+		
+		["i_part"] 	            = "Items (Parts)",
+		
+		["i_mutant_part"]    	= "Items (Misc.)",
+		["i_misc"] 	            = "Items (Misc.)",
+		["II_DOC"]              = "Items (Misc.)",
+		["EQ_PATCH"]            = "Items (Misc.)",
+		["II_ATTCH"]            = "Items (Misc.)",
+		["II_BTTCH"]            = "Items (Misc.)",
+		["D_FLALIT"]            = "Items (Misc.)",
+		["S_PDA"]               = "Items (Misc.)",
+		["D_PDA"]               = "Items (Misc.)",
+		
+		["i_letter"]    	    = "Items (Note)",
+		
+		["i_quest"]		        = "Items (Quest)",
+		
+		["i_upgrade"] 	        = "Items (Upgrades)",
+		
+		["o_helmet"]            = "Helmets",
+		["E_HLMET"]             = "Helmets",
+		["EQU_HLMET"]           = "Helmets",
+		
+		["i_mutant_belt"]    	= "Outfits (Attachments)",
+		["i_attach"]            = "Outfits (Attachments)",
+		["i_backpack"]          = "Outfits (Attachments)",
+		["EQ_BAKPK"]            = "Outfits (Attachments)",
+
+		["o_light"]             = "Outfits (Light)",
+		
+		["E_STLK"]              = "Outfits (Medium)",
+		["EQU_STLK"]            = "Outfits (Medium)",
+		["o_medium"]            = "Outfits (Medium)",
+		["o_sci"]               = "Outfits (Medium)",
+		
+		["o_heavy"]             = "Outfits (Heavy)",
+		
+		["w_ammo"]              = "Weapons (Ammo)",
+		["AMMO"]                = "Weapons (Ammo)",
+		["AMMO_S"]              = "Weapons (Ammo)",
+		["S_OG7B"]              = "Weapons (Ammo)",
+		["S_VOG25"]             = "Weapons (Ammo)",
+		["S_M209"]              = "Weapons (Ammo)",
+
+		["w_melee"]             = "Weapons (Melee)",
+		["WP_KNIFE"]            = "Weapons (Melee)",
+		
+		["w_pistol"]            = "Weapons (Pistol)",
+		["WP_HPSA"]             = "Weapons (Pistol)",
+		["WP_PM"]               = "Weapons (Pistol)",
+		["WP_USP45"]            = "Weapons (Pistol)",
+		
+		["w_shotgun"]           = "Weapons (Shotgun)",
+		["WP_ASHTG"]            = "Weapons (Shotgun)",
+		["WP_BM16"]             = "Weapons (Shotgun)",
+		
+		["w_rifle"]             = "Weapons (Rifle)",
+		["WP_AK74"]             = "Weapons (Rifle)",
+		["WP_GROZA"]            = "Weapons (Rifle)",
+		["WP_LR300"]            = "Weapons (Rifle)",
+		["WP_VAL"]              = "Weapons (Rifle)",
+		
+		["w_sniper"]            = "Weapons (Sniper)",
+		["WP_SVD"]              = "Weapons (Sniper)",
+		["WP_SVU"]              = "Weapons (Sniper)",
+		
+		["w_explosive"]         = "Weapons (Explosive)",
+		["WP_RG6"]              = "Weapons (Explosive)",
+		["WP_RPG7"]             = "Weapons (Explosive)",
+		["G_F1_S"]              = "Weapons (Explosive)",
+		["G_RGD5_S"]            = "Weapons (Explosive)",
+		["G_F1"] 	            = "Weapons (Explosive)",
+		["G_RGD5"] 	            = "Weapons (Explosive)",
+		
+		["w_base"]         		= "Weapons (Misc.)",
+		["w_misc"]              = "Weapons (Misc.)",
+		["WP_SCOPE"]            = "Weapons (Misc.)",
+		["WP_SILEN"]            = "Weapons (Misc.)",
+		["WP_GLAUN"]            = "Weapons (Misc.)",
+		["S_WPN_MISC"]          = "Weapons (Misc.)",
+		["WP_BINOC"]            = "Weapons (Misc.)",
+		["II_BOLT"]             = "Weapons (Misc.)",
+	}
+	
+	local ltx = ini_file("plugins\\spawner_blacklist.ltx")
+	ini_sys:section_for_each(function(section)
+		if (not ltx:line_exist("ignore_sections",section))
+		and (not s_find(section,"tch_"))
+		and (not s_find(section,"mp_"))
+		and (not s_find(section,"_base"))
+		then
+			local class = ini_sys:r_string_ex(section,"class")
+			local kind = ini_sys:r_string_ex(section,"kind") -- special class name for the sake of correct listing
+			if kind then
+				class = kind
+			end
+			
+			if (class) then 
+				local typ = m_classes[class]
+				if (typ) then
+					if (s_find(typ,"Items")) then 
+						if (ini_sys:r_bool_ex(section,"quest_item",false) == true) then 
+							typ = "Items (Quest)"
+						end
+					elseif (s_find(typ,"Weapons")) and (typ ~= "Weapons (Misc.)") then
+						local parent_section = ini_sys:r_string_ex(section,"parent_section") or section
+						if (parent_section ~= section) then
+							typ = "na"
+						end
+					end
+					local scope = ini_sys:r_string_ex(section,"description")
+					if (scope and scope:find("st_dxr_addon_scope_")) then
+						typ = "Weapons (Misc.)"
+					end
+					if (spawn_table_list[typ]) then
+						local w = ini_sys:r_float_ex(section,"inv_grid_width")
+						local h = ini_sys:r_float_ex(section,"inv_grid_height")
+						if w and h and w > 0 and h > 0 then
+							spawn_table_list[typ][#spawn_table_list[typ]+1] = { sec = section , w = w , h = h }
+						end
+					end
+				end
+			end
+		end
+		return false
+	end
+	)	
+	
+	return spawn_table_list[name]
+end
+
+local ui_itm
+function start_item_spawner()
+	ui_itm = start_ui(ui_itm, ui_debug_itm_spawner)
+	if ui_itm and ui_itm:IsShown() then
+		_G.KEYS_UNLOCK					= false
+	end
+end
+
+class "ui_debug_itm_spawner" (CUIScriptWnd)
+function ui_debug_itm_spawner:__init(owner) super()
+	self.owner = owner
+	self.inv = {}
+	self.index = nil
+	self.highlight = nil
+	
+	self:InitControls()
+	self:InitCallBacks()
+end
+
+function ui_debug_itm_spawner:__finalize()
+	
+end
+
+function ui_debug_itm_spawner:InitControls()
+	self:SetWndRect			(Frect():set(0,0,1024,768))
+	self:SetAutoDelete(true)
+	
+	self.xml				= CScriptXmlInit()
+	local xml = self.xml
+	xml:ParseFile			("ui_debug_launcher.xml")
+	
+	-- Item Type
+	self.d1              = xml:InitStatic("dbg_spawn_i_type", self)
+	self.d1_frame        = xml:InitFrame("dbg_spawn_i_type:frame_base", self.d1)
+	self.d1_frame_list   = xml:InitFrame("dbg_spawn_i_type:frame_list", self.d1)
+	self.d1_cap          = xml:InitStatic("dbg_spawn_i_type:cap", self.d1)
+	self.type            = xml:InitListBox("dbg_spawn_i_type:list", self.d1)
+	self.type:ShowSelectedItem(true)
+	self.type:Show(true)
+	self:Register(self.type, "itm_type")
+	
+	for i=1,#id_to_spawn_table do
+		local _ele = list_element(i, self.type:GetWidth(), 22, 5, id_to_spawn_table[i], nil)
+		self.type:AddExistingItem(_ele)
+	end
+	
+	-- Item List
+	self.d12              = xml:InitStatic("dbg_spawn_i_list", self)
+	self.d12_frame        = xml:InitFrame("dbg_spawn_i_list:frame_base", self.d12)
+	self.d12_frame_list   = xml:InitFrame("dbg_spawn_i_list:frame_list", self.d12)
+	self.d12_cap          = xml:InitStatic("dbg_spawn_i_list:cap", self.d12)
+	self.list            = xml:InitListBox("dbg_spawn_i_list:list", self.d12)
+	self.list:ShowSelectedItem(true)
+	self.list:Show(true)
+	self:Register(self.list, "itm_list")
+	
+	-- Inventory
+	self.d2              = xml:InitStatic("dbg_spawn_i_inventory", self)
+	self.d2_frame        = xml:InitFrame("dbg_spawn_i_inventory:frame_base", self.d2)
+	self.d2_frame_inv    = xml:InitFrame("dbg_spawn_i_inventory:frame_inv", self.d2)
+	self.d2_cap          = xml:InitStatic("dbg_spawn_i_inventory:cap", self.d2)
+	self.d2_scroll 		 = xml:InitScrollView("dbg_spawn_i_inventory:itm_scrollbar", self.d2)
+	
+	
+	-- Hint Window
+	self.hint_wnd = xml:InitFrame("hint_wnd:background",self)
+	self.hint_wnd:SetAutoDelete(false)
+	self.hint_wnd_text = xml:InitTextWnd("hint_wnd:text",self.hint_wnd)
+	self.hint_wnd:Show(false)
+	
+	-- Message Window 
+	self.msg_wnd = xml:InitFrame("hint_wnd:background",self)
+	self.msg_wnd:SetAutoDelete(false)
+	self.msg_wnd_text = xml:InitTextWnd("hint_wnd:text",self.msg_wnd)
+	self.msg_wnd_text:SetTextAlignment(2)
+	
+	self.msg_wnd:Show(false)
+	self.msg_wnd:SetColor(GetARGB(255,0,0,0))
+end
+
+function ui_debug_itm_spawner:InitCallBacks()
+	self:AddCallback("itm_type", ui_events.WINDOW_LBUTTON_DB_CLICK, self.OnItemType_DBClicked, self)
+	self:AddCallback("itm_list", ui_events.WINDOW_LBUTTON_DB_CLICK, self.OnItemList_DBClicked, self)
+	self:AddCallback("button_itm", ui_events.BUTTON_CLICKED, self.OnItemClicked, self)
+end
+
+function ui_debug_itm_spawner:InitItems(index)
+	if (self.index == index) then
+		return
+	end
+	
+	local name = id_to_spawn_table[index]
+	local xml = self.xml
+	local spawntbl = get_spawn_table(name)
+	if not (spawntbl) then
+		printf("ui_debug_itm_spawner: No spawn table could be created for %s",name)
+		return
+	end
+	
+	self.index = index
+	empty_table(self.inv)
+	
+	local function count_grids_num(t)
+		local cnt = 0
+		for i=1,#t do
+			cnt = cnt + (t[i].w * t[i].h)
+		end
+		return cnt
+	end
+
+	self.d2_scroll:Clear()
+	self.list:RemoveAll()
+	local _st = xml:InitStatic("dbg_spawn_i_form", nil)
+	
+	local grid = xml:InitStatic("inv_grid", nil)
+	local grid_w = grid:GetWidth()
+	local grid_h = grid:GetHeight()
+	local tot_grid_w = math.floor(_st:GetWidth() / grid_w)
+	local tot_grid_h = math.floor(_st:GetHeight() / grid_h)
+	local tot_grid_num = math.max( count_grids_num(spawntbl) , (tot_grid_w * tot_grid_h))
+	local tot_grid_ind = {}
+	for i=1,tot_grid_num do
+		local row = m_ceil(i/tot_grid_w)
+		tot_grid_ind[row] = tot_grid_ind[row] or {}
+		tot_grid_ind[row][#tot_grid_ind[row] + 1] = true
+	end
+
+	--table.sort(spawntbl)
+	local xml_itm, xml_itm_s, xml_itm_tmp
+	for i = 1, #spawntbl do
+	
+		local sec = spawntbl[i].sec
+		local w = spawntbl[i].w
+		local h = spawntbl[i].h
+		
+		-- List
+		local _E = list_element(sec, self.list:GetWidth(), 22, 5, sec, nil)
+		self.list:AddExistingItem(_E)
+		_E:SetTextColor(GetARGB(255, 150, 150, 250))
+		
+		-- Icons
+		if (ini_sys:section_exist(sec)) then
+			
+			xml_itm_tmp = xml:InitStatic("inv_grid", _st)
+			self.inv[sec] = xml:Init3tButton("inv_btn_" .. tostring(w) .. "_" .. tostring(h), _st)
+			xml_itm = xml:InitStatic("inv_grid", _st)
+			xml_itm_s = xml:InitStatic("inv_grid", _st)
+
+			tot_grid_h = txr_utils.set_grid_element(
+				{ id = i , sec = sec , g_w = grid_w , g_h = grid_h , w = w , h = h , g_row = tot_grid_w },
+				tot_grid_ind,
+				self.inv[sec], xml_itm, xml_itm_s, xml_itm_tmp
+			)
+			txr_utils.set_up_icon(sec, nil, xml_itm_tmp, xml_itm, xml_itm_s)
+			self:Register(self.inv[sec], "button_itm")
+
+		end
+	end
+
+	_st:SetWndSize(vector2():set(_st:GetWidth(),tot_grid_h * grid_h))
+	self.d2_scroll:AddWindow(_st, true)
+	_st:SetAutoDelete(false)
+end
+
+function ui_debug_itm_spawner:Update()
+	CUIScriptWnd.Update(self)
+	
+	-- Warning messages timer 
+	if (self.msg_wnd_timer and time_global() > self.msg_wnd_timer) then 
+		self.msg_wnd_timer = nil
+		self.msg_wnd:Show(false)
+	end
+	
+	for sec,v in pairs(self.inv) do
+		if (v and v:IsCursorOverWindow()) then
+			local name = ui_item.get_sec_name(sec)
+			local desc = ui_item.get_sec_desc(sec)
+			local str = "%c[0,250,250,150]" .. sec .. "%c[0,140,140,140] \\n-------------- \\n%c[0,200,200,200]" .. name .. "%c[0,140,140,140] \\n-------------- \\n" .. desc
+			self:SetHint(str)
+			self.highlight = sec
+			return
+		end
+	end
+	
+	self.hint_wnd:Show(false)
+end 
+
+function ui_debug_itm_spawner:SetMsg(text,tmr)
+	if (text == "") then 
+		return 
+	end
+	self.msg_wnd:Show(true)
+	self.msg_wnd_text:SetText(text)
+	self.msg_wnd_text:AdjustHeightToText()
+	self.msg_wnd_text:SetWndSize(vector2():set(820,self.msg_wnd_text:GetHeight()+10))
+	self.msg_wnd_text:SetWndPos(vector2():set(0,20))
+	
+	self.msg_wnd:SetWndSize(vector2():set(820,self.msg_wnd_text:GetHeight()+44))
+	self.msg_wnd:SetWndPos(vector2():set(0,80))
+
+	self.msg_wnd_timer = time_global() + 1000*tmr
+end
+
+function ui_debug_itm_spawner:SetHint(text,pos)
+	if (text == "") then
+		return
+	end
+	self.hint_wnd:Show(true)
+	self.hint_wnd_text:SetText(text)
+	self.hint_wnd_text:AdjustHeightToText()
+	self.hint_wnd:SetWndSize(vector2():set(self.hint_wnd:GetWidth(),self.hint_wnd_text:GetHeight()+44))
+	
+	pos = pos or GetCursorPosition()
+	pos.y = pos.y - self.hint_wnd:GetHeight()
+	pos.x = pos.x - self.hint_wnd:GetWidth()
+	self.hint_wnd:SetWndPos(pos)
+	
+	FitInRect(self.hint_wnd,Frect():set(0,0,1024,768),0,100)
+end
+
+------ Functions
+function ui_debug_itm_spawner:OnItemType_DBClicked()
+	local pick = self.type:GetSelectedItem()
+	if (not pick) then
+		return
+	end
+	
+	self:InitItems(pick.index)
+end
+
+function ui_debug_itm_spawner:OnItemList_DBClicked()
+	local pick = self.list:GetSelectedItem()
+	if (not pick) then
+		return
+	end
+	
+	local sec = pick.index
+	local se_obj = sec and alife():create(sec, db.actor:position(), db.actor:level_vertex_id(), db.actor:game_vertex_id(), AC_ID)
+	if se_obj then
+		local str = strformat("- Spawned item [%s] (%s)", sec, se_obj.id)
+		printf(str)
+		SetHudMsg(str,5)
+	else
+		printf("! no server object made for [%s]", sec)
+	end
+end
+
+function ui_debug_itm_spawner:OnItemClicked()
+	if (not self.highlight) then
+		return
+	end
+	
+	local sec = self.highlight
+	local se_obj = alife():create(sec, db.actor:position(), db.actor:level_vertex_id(), db.actor:game_vertex_id(), AC_ID)
+	if se_obj then
+		local str = strformat("- Spawned item [%s] (%s)", sec, se_obj.id)
+		printf(str)
+		SetHudMsg(str,5)
+	else
+		printf("! no server object made for [%s]", sec)
+	end
+end
+
+
+
+function ui_debug_itm_spawner:OnKeyboard(dik, keyboard_action)
+	local res = CUIScriptWnd.OnKeyboard(self,dik,keyboard_action)
+	if (res == false) then
+		if keyboard_action == ui_events.WINDOW_KEY_PRESSED then
+			if dik == DIK_keys.DIK_ESCAPE then
+				self:OnCancel()
+				
+			elseif (dik == DIK_keys[spawn_all_key]) and self.index then
+				printf("~Home key pressed")
+				local name = id_to_spawn_table[self.index]
+				local spawntbl = get_spawn_table(name)
+				local sim = alife()
+				for i = 1, #spawntbl do
+					local se_obj = sim:create(spawntbl[i].sec, db.actor:position(), db.actor:level_vertex_id(), db.actor:game_vertex_id(), AC_ID)
+					if se_obj then
+						printf("- Spawned item [%s](%s)", spawntbl[i].sec, se_obj.id)
+					end
+				end
+			end
+		end
+	end
+	return res
+end
+
+function ui_debug_itm_spawner:OnCancel()
+	self:HideDialog()
+	self:Show(false)
+	--ui_itm = nil
+	_G.KEYS_UNLOCK					= true
+end
+
+
+------------------------------------------------------------
+-- Object Spawner
+------------------------------------------------------------
+obj_to_spawn_table = {
+		[1] = "NPC (Mutant)",				
+		[2] = "NPC (Stalker)",		
+		[3] = "Squads (Mutant)",			
+		[4] = "Squads (Stalker)",	
+		[5] = "Squads (Story ID)",
+		[6] = "Vehicles",
+		[7] = "Anomaly",
+		[8] = "Physic (Misc.)",
+		[9] = "Phantom"
+}
+
+local spawn_obj_table_list
+function get_obj_spawn_table(name)
+	if (spawn_obj_table_list and spawn_obj_table_list[name]) then 
+		return spawn_obj_table_list[name]
+	end 
+	
+	spawn_obj_table_list = {
+		["NPC (Mutant)"]                  = {},				
+		["NPC (Stalker)"]                 = {},		
+		["Squads (Mutant)"]               = {},			
+		["Squads (Stalker)"]              = {},
+		["Squads (Story ID)"]             = {},	
+		["Vehicles"]                      = {},
+		["Anomaly"]                       = {},
+		["Physic (Misc.)"]                = {},
+		["Phantom"]                       = {}
+	}	
+	
+	local m_classes =
+	{
+		-- kind
+		["AI_STL_S"]    = "NPC (Stalker)",
+		["AI_TRD_S"]    = "NPC (Stalker)",
+
+		["SM_KAR"]	    = "NPC (Mutant)",
+		["SM_BLOOD"]    = "NPC (Mutant)",
+		["SM_BOARW"]    = "NPC (Mutant)",
+		["SM_BURER"]    = "NPC (Mutant)",
+		["SM_CAT_S"]    = "NPC (Mutant)",
+		["SM_CHIMS"]    = "NPC (Mutant)",
+		["SM_CONTR"]    = "NPC (Mutant)",
+		["SM_DOG_S"]    = "NPC (Mutant)",
+		["SM_FLESH"]    = "NPC (Mutant)",
+		["SM_IZLOM"]    = "NPC (Mutant)",
+		["SM_GIANT"]    = "NPC (Mutant)",
+		["SM_POLTR"]    = "NPC (Mutant)",
+		["SM_P_DOG"]    = "NPC (Mutant)",
+		["SM_DOG_P"]    = "NPC (Mutant)",
+		["SM_DOG_F"]    = "NPC (Mutant)",
+		["SM_SNORK"]    = "NPC (Mutant)",
+		["SM_TUSHK"]    = "NPC (Mutant)",
+		["SM_ZOMBI"]    = "NPC (Mutant)",
+		["SM_RAT"]	    = "NPC (Mutant)",
+		["SM_KARLIK"]	= "NPC (Mutant)",
+		["SM_LURKER"]	= "NPC (Mutant)",
+		["SM_PSYSUCKER"]	= "NPC (Mutant)",
+
+		["C_HLCP_S"] 	= "Vehicles",
+		["C_NIVA"] 		= "Vehicles",
+		["SCRPTCAR"] 	= "Vehicles",
+
+		["ON_OFF_S"]    = "Squads",
+		
+		["O_PHYSIC"]    = "Physic (Misc.)",
+		["O_DSTRBL"]    = "Physic (Misc.)",
+		["O_PHYS_S"]    = "Physic (Misc.)",
+		["O_DSTR_S"]    = "Physic (Misc.)",
+		["S_INVBOX"]    = "Physic (Misc.)",
+		["O_INVBOX"]    = "Physic (Misc.)",
+		["S_EXPLO"]     = "Physic (Misc.)",
+		["II_EXPLO"]    = "Physic (Misc.)",
+
+		["ZS_MBALD"]    = "Anomaly",
+		["ZS_GALAN"]    = "Anomaly",
+		["ZS_MINCE"]    = "Anomaly",
+		["ZS_RADIO"]    = "Anomaly",
+		["ZS_TORRD"]    = "Anomaly",
+		["ZS_NGRAV"]    = "Anomaly",
+		["Z_MBALD"]     = "Anomaly",
+		["Z_RADIO"]     = "Anomaly",
+		["Z_CFIRE"]     = "Anomaly",
+		["Z_NOGRAV"]    = "Anomaly",
+		["Z_TORRID"]    = "Anomaly",
+		["Z_RUSTYH"]    = "Anomaly",
+		["ZS_BFUZZ"]    = "Anomaly",
+		["ZS_AMEBA"]    = "Anomaly",
+		
+		["AI_PHANT"]    = "Phantom",
+	}
+	
+	local ltx = ini_file("plugins\\spawner_blacklist.ltx")
+	ini_sys:section_for_each(function(section)
+		if (not ltx:line_exist("ignore_sections",section))
+		and (not s_find(section,"tch_"))
+		and (not s_find(section,"mp_"))
+		and (not s_find(section,"_base"))
+		then
+			local class = ini_sys:r_string_ex(section,"class")
+			local kind = ini_sys:r_string_ex(section,"kind") -- special class name for the sake of correct listing
+			if kind then
+				class = kind
+			end
+			
+			if (class) then 
+				local typ = m_classes[class]
+				if (typ) then
+					if (typ == "Squads") then 
+						local is_monster = ini_sys:r_string_ex(section,"faction") or ""
+						local story_id = ini_sys:r_string_ex(section,"story_id") or ""
+						if story_id ~= "" then
+							--typ = typ .. " (Story ID)"
+						elseif (s_find(is_monster,"monster")) then 
+							typ = typ .. " (Mutant)"
+						elseif (s_find(section,"sim_squad_")) then
+							typ = typ .. " (Stalker)"
+						end
+						
+					elseif (typ == "NPC (Stalker)") or (typ == "NPC (Mutant)")  then 
+						local character_profile = ini_sys:r_string_ex(section,"character_profile") or ""
+						local story_id = ini_sys:r_string_ex(section,"story_id") or ""
+						local species = ini_sys:r_string_ex(section,"species") or ""
+						if (story_id ~= "") then
+							typ = "na"
+						elseif (species == "human") and (not s_find(character_profile,"sim_default_")) then
+							typ = "na"
+						end
+					end
+					if (spawn_obj_table_list[typ]) then
+						spawn_obj_table_list[typ][#spawn_obj_table_list[typ]+1] = section
+					end
+				end
+			end
+		end
+		return false
+	end
+	)	
+	
+	return spawn_obj_table_list[name]
+end
+
+local ui_obj_spawn
+function start_obj_spawner()
+	ui_obj_spawn = start_ui(ui_obj_spawn, ui_debug_obj_spawner)
+	if ui_obj_spawn and ui_obj_spawn:IsShown() then
+		_G.KEYS_UNLOCK					= false
+	end
+end
+
+class "ui_debug_obj_spawner" (CUIScriptWnd)
+function ui_debug_obj_spawner:__init(owner) super()
+	self.owner = owner
+	self.inv = {}
+	self.index = nil
+	
+	self:InitControls()
+	self:InitCallBacks()
+end
+
+function ui_debug_obj_spawner:__finalize()
+	
+end
+
+function ui_debug_obj_spawner:InitControls()
+	self:SetWndRect			(Frect():set(0,0,1024,768))
+	self:SetAutoDelete(true)
+	
+	self.xml				= CScriptXmlInit()
+	local xml = self.xml
+	xml:ParseFile			("ui_debug_launcher.xml")
+	
+	-- Object Type
+	self.d1              = xml:InitStatic("dbg_spawn_i_type", self)
+	self.d1_frame        = xml:InitFrame("dbg_spawn_i_type:frame_base", self.d1)
+	self.d1_frame_list   = xml:InitFrame("dbg_spawn_i_type:frame_list", self.d1)
+	self.d1_cap          = xml:InitStatic("dbg_spawn_i_type:cap", self.d1)
+	self.type            = xml:InitListBox("dbg_spawn_i_type:list", self.d1)
+	self.type:ShowSelectedItem(true)
+	self.type:Show(true)
+	self:Register(self.type, "obj_type")
+	
+	for i=1,#obj_to_spawn_table do
+		local _ele = list_element(i, self.type:GetWidth(), 22, 5, obj_to_spawn_table[i], nil)
+		self.type:AddExistingItem(_ele)
+	end
+	
+	-- Object List
+	self.d12              = xml:InitStatic("dbg_spawn_i_list", self)
+	self.d12_frame        = xml:InitFrame("dbg_spawn_i_list:frame_base", self.d12)
+	self.d12_frame_list   = xml:InitFrame("dbg_spawn_i_list:frame_list", self.d12)
+	self.d12_cap          = xml:InitStatic("dbg_spawn_i_list:cap", self.d12)
+	self.list            = xml:InitListBox("dbg_spawn_i_list:list", self.d12)
+	self.list:ShowSelectedItem(true)
+	self.list:Show(true)
+	self:Register(self.list, "obj_list")
+end
+
+function ui_debug_obj_spawner:InitCallBacks()
+	self:AddCallback("obj_type", ui_events.WINDOW_LBUTTON_DB_CLICK, self.OnObjectType_DBClicked, self)
+	self:AddCallback("obj_list", ui_events.WINDOW_LBUTTON_DB_CLICK, self.OnObjectList_DBClicked, self)
+end
+
+function ui_debug_obj_spawner:InitObjects(index)
+	if (self.index == index) then
+		return
+	end
+	
+	local name = obj_to_spawn_table[index]
+	local spawntbl = get_obj_spawn_table(name)
+	if not (spawntbl) then
+		printf("ui_debug_obj_spawner: No spawn table could be created for %s",name)
+		return
+	end
+	
+	self.index = index
+	self.list:RemoveAll()
+	
+	local is_squad = string.find(name,"Squad")
+	local cant_spawn_actor = string.find(name,"NPC") or string.find(name,"Physic")
+	local is_veh = string.find(name,"Vehicles")
+	local is_anom = string.find(name,"Anomaly")
+	local is_phantom = string.find(name,"Phantom")
+
+	--table.sort(spawntbl)
+	local xml_itm, xml_itm_s, xml_itm_tmp
+	for i = 1, #spawntbl do
+	
+		local sec = spawntbl[i]
+		
+		-- List
+		local _E = list_element(i, self.list:GetWidth(), 22, 5, sec, nil)
+		self.list:AddExistingItem(_E)
+		_E:SetTextColor(GetARGB(255, 150, 150, 250))
+		_E.sec = sec
+		
+		if (is_squad) then
+			_E.no_id = true
+			_E.squad = true
+			_E.spawn_at_look = true
+		elseif (cant_spawn_actor) then
+			_E.no_id = true
+			_E.spawn_at_look = true
+		elseif (is_veh) then 
+			_E.no_id = true
+			_E.spawn_at_look = true
+		elseif (is_anom) then 
+			_E.no_id = true
+			_E.spawn_at_look = true
+			_E.is_anom = true
+		elseif (is_phantom) then 
+			_E.no_id = true
+			_E.spawn_at_look = true 
+			_E.use_level_spawn = true
+		end
+	end
+end
+
+------ Functions
+function ui_debug_obj_spawner:OnObjectType_DBClicked()
+	local pick = self.type:GetSelectedItem()
+	if (not pick) then
+		return
+	end
+	
+	self:InitObjects(pick.index)
+end
+
+function ui_debug_obj_spawner:OnObjectList_DBClicked()
+	local pick = self.list:GetSelectedItem()
+	if (not pick) then
+		return
+	end
+	
+	local pos, lvid, gvid
+	local sec = pick.sec
+	if (pick.spawn_at_look) then 
+		gvid = db.actor:game_vertex_id()
+		local r = level.get_target_dist and level.get_target_dist() or 3
+		pos = vector():set(db.actor:position())
+		pos:add(device().cam_dir:mul(r))
+		pos = vector():set(pos.x,db.actor:position().y,pos.z)
+		lvid = level.vertex_id(pos)
+	else
+		pos = db.actor:position()
+		lvid = db.actor:level_vertex_id()
+		gvid = db.actor:game_vertex_id()
+	end
+	
+	if (pick.use_level_spawn) then 
+		if (level.spawn_item) then
+			level.spawn_item(sec,pos,lvid,65535,false)
+		end
+		return
+	end
+	
+	local se_obj = sec and alife():create(sec, pos, lvid, gvid)
+	if se_obj then
+		local str = strformat("- Spawned object [%s] (%s)", sec, se_obj.id)
+		printf(str)
+		SetHudMsg(str,5)
+		
+		if (pick.is_anom) then 
+			local data = stpk_utils.get_object_data(se_obj)
+			if (data) then
+				data.object_flags = 31
+				--data.artefact_spawn_count = 1
+				data.restrictor_type = 0
+				data.shapes = {}
+				data.shapes[1] = {}
+				data.shapes[1].shtype = 0
+				data.shapes[1].offset = VEC_ZERO
+				data.shapes[1].radius = 10
+				stpk_utils.set_object_data(data,se_obj)
+			end
+		end
+	else
+		printf("! no server object made for [%s]", sec)
+	end
+	
+	
+end
+
+
+function ui_debug_obj_spawner:OnKeyboard(dik, keyboard_action)
+	local res = CUIScriptWnd.OnKeyboard(self,dik,keyboard_action)
+	if (res == false) then
+		if keyboard_action == ui_events.WINDOW_KEY_PRESSED then
+			if dik == DIK_keys.DIK_ESCAPE then
+				self:OnCancel()
+			end
+		end
+	end
+	return res
+end
+
+function ui_debug_obj_spawner:OnCancel()
+	self:HideDialog()
+	self:Show(false)
+	--ui_obj_spawn = nil
+	_G.KEYS_UNLOCK					= true
+end
+
+
+------------------------------------------------------------
+-- Function Executer
+------------------------------------------------------------
+local ui_exec
+function start_executer()
+	ui_exec = start_ui(ui_exec, ui_debug_executer)
+	if ui_exec and ui_exec:IsShown() then
+		_G.KEYS_UNLOCK					= false
+	end
+end
+
+class "ui_debug_executer" (CUIScriptWnd)
+function ui_debug_executer:__init(owner) super()
+	self:InitControls()
+	self:InitCallBacks()
+end
+
+function ui_debug_executer:__finalize()
+	
+end
+
+function ui_debug_executer:InitControls()
+	self:SetWndRect			(Frect():set(0,0,1024,768))
+	self:SetAutoDelete(true)
+	
+	self.xml				= CScriptXmlInit()
+	local xml = self.xml
+	xml:ParseFile			("ui_debug_launcher.xml")
+	
+	-- Item List
+	self.dialog              = xml:InitStatic("dbg_exec", self)
+	self.frame               = xml:InitFrame("dbg_exec:frame_base", self.dialog)
+	self.cap                 = xml:InitStatic("dbg_exec:cap", self.dialog)
+	self.input               = xml:InitEditBox("dbg_exec:input",self.dialog)
+	self.btn                 = xml:Init3tButton("dbg_exec:btn", self.dialog)
+	self:Register(self.btn,"button_execute")
+end
+
+function ui_debug_executer:InitCallBacks()
+	self:AddCallback("button_execute", ui_events.BUTTON_CLICKED, self.OnExecute, self)
+end
+
+function ui_debug_executer:OnExecute()
+	local txt = self.input:GetText()
+	if (txt ~= "") then
+		assert(loadstring(txt))()
+	end
+end
+
+function ui_debug_executer:OnKeyboard(dik, keyboard_action)
+	local res = CUIScriptWnd.OnKeyboard(self,dik,keyboard_action)
+	if (res == false) then
+		if keyboard_action == ui_events.WINDOW_KEY_PRESSED then
+			if dik == DIK_keys.DIK_ESCAPE then
+				self:OnCancel()
+			end
+		end
+	end
+	return res
+end
+
+function ui_debug_executer:OnCancel()
+	self:HideDialog()
+	self:Show(false)
+	--ui_exec = nil
+	_G.KEYS_UNLOCK					= true
+end
+
+
+------------------------------------------------------------
+-- Utilities
+------------------------------------------------------------
+function start_ui(ui, xml)
+	local hud = get_hud()
+	if (hud) then
+		hud:HideActorMenu()
+	end
+	
+	if (not ui) then
+		ui = xml(hud)
+	end
+	
+	if (ui) and (not ui:IsShown()) then
+		ui:ShowDialog(true)
+	end
+	
+	return ui
+end
+
+function send_output(txt,...)
+	if ui_main and ui_main:IsShown() then
+		ui_main:SendOutput(txt,...)
+	end
+	if enable_log then
+		printf(txt,...)
+	end
+end
+
+function stalker_check(npc)
+	if (not npc) then
+		send_output("!No target object found")
+		return false
+	end
+	if not IsStalker(npc) then
+		send_output("!Object [%s] is not a stalker", npc:name())
+		return false
+	end
+	return true
+end
